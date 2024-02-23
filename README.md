@@ -1,4 +1,7 @@
 # Kitchen Module Documentation
+[![PyPI - Downloads](https://img.shields.io/pypi/dm/entry-on-kitchen)](https://pypi.org/project/entry-on-kitchen/)
+[![PyPI - Version](https://img.shields.io/pypi/v/entry-on-kitchen)](https://pypi.org/project/entry-on-kitchen/)
+
 ## EntryBlock Class
 
 The EntryBlock class is a part of the kitchen module for accessing entry blocks. It provides methods for both synchronous and asynchronous execution, as well as asynchronous and synchronous methods for getting run status.
