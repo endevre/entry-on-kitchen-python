@@ -50,7 +50,7 @@ KitchenClient(auth_code, entry_point="")
 
 ### Methods
 
-#### `sync(recipe_id, entry_id, body)`
+#### `sync(recipe_id, entry_id, body, use_kitchen_billing=False, llm_override=None, api_key_override=None)`
 
 Execute a recipe synchronously and wait for the complete result.
 
@@ -58,6 +58,9 @@ Execute a recipe synchronously and wait for the complete result.
 - `recipe_id` (str): The ID of the pipeline/recipe
 - `entry_id` (str): The ID of the entry block
 - `body` (dict or str): Request body data
+- `use_kitchen_billing` (bool, optional): Enable Kitchen billing
+- `llm_override` (str, optional): Override the LLM model (e.g., "gpt-4", "claude-3")
+- `api_key_override` (dict, optional): Override API keys for external services
 
 **Returns:**
 Dictionary containing:
@@ -85,7 +88,7 @@ else:
     print("Error:", result["error"])
 ```
 
-#### `stream(recipe_id, entry_id, body)`
+#### `stream(recipe_id, entry_id, body, use_kitchen_billing=False, llm_override=None, api_key_override=None)`
 
 Execute a recipe with real-time streaming. Yields events as they arrive.
 
@@ -93,6 +96,9 @@ Execute a recipe with real-time streaming. Yields events as they arrive.
 - `recipe_id` (str): The ID of the pipeline/recipe
 - `entry_id` (str): The ID of the entry block
 - `body` (dict or str): Request body data
+- `use_kitchen_billing` (bool, optional): Enable Kitchen billing
+- `llm_override` (str, optional): Override the LLM model (e.g., "gpt-4", "claude-3")
+- `api_key_override` (dict, optional): Override API keys for external services
 
 **Yields:**
 Dictionary objects representing stream events with keys:
@@ -249,6 +255,58 @@ client = KitchenClient(auth_code="your-auth-code", entry_point="beta")
 ```python
 client = KitchenClient(auth_code="your-auth-code", entry_point="custom")
 # Uses: https://custom.entry.on.kitchen
+```
+
+## Optional Features
+
+### Kitchen Billing
+
+Enable Kitchen billing for your recipe execution:
+
+```python
+result = client.sync(
+    recipe_id="recipe-123",
+    entry_id="entry-456",
+    body={"message": "Hello!"},
+    use_kitchen_billing=True
+)
+```
+
+### LLM Model Override
+
+Override the LLM model used in your recipe:
+
+```python
+result = client.sync(
+    recipe_id="recipe-123",
+    entry_id="entry-456",
+    body={"message": "Write a poem"},
+    llm_override="gpt-4"
+)
+
+# Or with streaming
+for event in client.stream(
+    recipe_id="recipe-123",
+    entry_id="entry-456",
+    body={"message": "Write a poem"},
+    llm_override="claude-3"
+):
+    # Handle events
+    pass
+```
+
+### Combining Options
+
+You can use both options together:
+
+```python
+result = client.sync(
+    recipe_id="recipe-123",
+    entry_id="entry-456",
+    body={"message": "Hello!"},
+    use_kitchen_billing=True,
+    llm_override="gpt-4"
+)
 ```
 
 ## Requirements
