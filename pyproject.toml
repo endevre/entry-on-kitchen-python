@@ -1,0 +1,47 @@
+[build-system]
+requires = ["setuptools>=61.0", "wheel"]
+build-backend = "setuptools.build_meta"
+
+[project]
+name = "entry-on-kitchen"
+version = "0.3.0"
+description = "Official Python Module for using entry blocks on kitchen"
+readme = "README.md"
+requires-python = ">=3.7"
+license = {text = "Proprietary"}
+authors = [
+    {name = "Endevre Technologies", email = "contact@endevre.com"}
+]
+keywords = ["kitchen", "entry", "api", "pipeline", "streaming"]
+classifiers = [
+    "Development Status :: 5 - Production/Stable",
+    "Intended Audience :: Developers",
+    "Topic :: Software Development :: Libraries :: Python Modules",
+    "Programming Language :: Python :: 3",
+    "Programming Language :: Python :: 3.7",
+    "Programming Language :: Python :: 3.8",
+    "Programming Language :: Python :: 3.9",
+    "Programming Language :: Python :: 3.10",
+    "Programming Language :: Python :: 3.11",
+    "Programming Language :: Python :: 3.12",
+]
+
+dependencies = [
+    "requests>=2.25.0",
+]
+
+[project.optional-dependencies]
+dev = [
+    "pytest>=8,<9",
+    "build>=1.0.0",
+    "twine>=4.0.0",
+]
+
+[project.urls]
+Homepage = "https://github.com/endevre/entry-on-kitchen-python"
+Documentation = "https://github.com/endevre/entry-on-kitchen-python#readme"
+Repository = "https://github.com/endevre/entry-on-kitchen-python"
+"Bug Tracker" = "https://github.com/endevre/entry-on-kitchen-python/issues"
+
+[tool.setuptools]
+packages = ["entry_on_kitchen"]

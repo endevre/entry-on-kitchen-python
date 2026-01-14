@@ -1,103 +1,224 @@
+"""
+Kitchen Client Library for Entry on Kitchen API
+
+Provides a simple interface for executing recipes synchronously and
+receiving real-time streaming updates.
+"""
+
 import requests
 import json
-import time
-import aiohttp
-import asyncio
+from typing import Iterator, Dict, Any, Optional
 
-class EntryBlock:
-    def __init__(self, pipelineId=None, entryBlockId=None, entryAuthCode=None, entryPoint=""):
-        if not pipelineId or not entryBlockId:
-            raise ValueError('pipelineId and entryBlockId are required')
 
-        self.pipelineId = pipelineId
-        self.entryBlockId = entryBlockId
-        self.entryPoint = entryPoint
-        self.entryAuthCode = entryAuthCode
+class KitchenClient:
+    """
+    Client for interacting with the Entry on Kitchen API.
 
-    def runSync(self, body):
-        result = None
-        resolved = False
+    Example:
+        client = KitchenClient(auth_code="your-auth-code", entry_point="beta")
+        result = client.sync(recipe_id="abc123", entry_id="entry1", body={"key": "value"})
 
-        headers = {
+        for event in client.stream(recipe_id="abc123", entry_id="entry1", body={"key": "value"}):
+            print(f"Event: {event['type']}")
+    """
+
+    def __init__(self, auth_code: str, entry_point: str = "entry"):
+        """
+        Initialize the KitchenClient.
+
+        Args:
+            auth_code: The X-Entry-Auth-Code for authentication
+            entry_point: Entry point environment (default: "entry" for production).
+                        Use "beta" for beta environment.
+
+        Raises:
+            ValueError: If auth_code is not provided
+        """
+        if not auth_code:
+            raise ValueError("auth_code is required")
+
+        self.auth_code = auth_code
+        self.entry_point = entry_point
+
+    def _get_headers(self) -> Dict[str, str]:
+        """Get standard headers for API requests."""
+        return {
             'Content-Type': 'application/json',
-            'X-Entry-Auth-Code': self.entryAuthCode,
+            'X-Entry-Auth-Code': self.auth_code,
         }
 
-        entryPoint = self.entryPoint + "." if self.entryPoint else ""
+    def _get_base_url(self) -> str:
+        """Get the base URL for API requests."""
+        entry_point_prefix = f"{self.entry_point}." if self.entry_point else ""
+        return f"https://{entry_point_prefix}entry.on.kitchen"
 
-        stringifiedBody = body if isinstance(body, str) else json.dumps(body)
+    def _prepare_body(self, body: Any) -> str:
+        """
+        Prepare the request body.
+
+        Args:
+            body: Either a string (already JSON) or a dict/list to be serialized
+
+        Returns:
+            JSON string
+        """
+        return body if isinstance(body, str) else json.dumps(body)
+
+    def sync(self, recipe_id: str, entry_id: str, body: Any) -> Dict[str, Any]:
+        """
+        Execute a recipe synchronously.
+
+        Args:
+            recipe_id: The ID of the pipeline/recipe
+            entry_id: The ID of the entry block
+            body: The request body (dict or JSON string)
+
+        Returns:
+            Dictionary containing the response with keys:
+                - runId: The execution run ID
+                - status: Execution status ("finished", "error", etc.)
+                - result: The execution result (if successful)
+                - error: Error message (if failed)
+                - exitBlock: Exit block information
+
+        Raises:
+            requests.HTTPError: If the request fails
+        """
+        headers = self._get_headers()
+        base_url = self._get_base_url()
+        stringified_body = self._prepare_body(body)
+
+        url = f"{base_url}/{recipe_id}/{entry_id}/sync"
 
         response = requests.post(
-            f"https://{entryPoint}entry.on.kitchen/{self.pipelineId}/{self.entryBlockId}/sync",
-            data=stringifiedBody,
+            url,
+            data=stringified_body,
             headers=headers
         )
 
-        result = response.json() if response.ok else response.json()
+        # Try to parse JSON response
+        try:
+            result = response.json()
+            # If we got an error response, return it instead of raising
+            if response.status_code != 200:
+                result['_statusCode'] = response.status_code
+                return result
+            return result
+        except:
+            # If response isn't JSON, raise the HTTP error
+            response.raise_for_status()
+            return None
 
-        return result
+    def stream(self, recipe_id: str, entry_id: str, body: Any) -> Iterator[Dict[str, Any]]:
+        """
+        Execute a recipe with streaming responses.
 
-    def pollStatus(self, runId):
-        status = None
-        resolved = False
+        Yields events as they arrive from the server. Each event is a dictionary
+        containing:
+            - runId: The execution run ID
+            - type: Event type ("progress", "result", "delta", "info", "end")
+            - time: Timestamp of the event
+            - data: Event-specific data
+            - socket: Socket ID (for "result" and "delta" events)
+            - statusCode: HTTP status code
 
-        headers = {
-            'Content-Type': 'application/json',
-            'X-Entry-Auth-Code': self.entryAuthCode,
-        }
+        Args:
+            recipe_id: The ID of the pipeline/recipe
+            entry_id: The ID of the entry block
+            body: The request body (dict or JSON string)
 
-        entryPoint = self.entryPoint + "." if self.entryPoint else ""
+        Yields:
+            Dictionary objects representing stream events
 
-        response = requests.get(
-            f"https://{entryPoint}entry.on.kitchen/{self.pipelineId}/pollstatus/{runId}",
-            headers=headers
+        Raises:
+            requests.HTTPError: If the initial request fails
+
+        Example:
+            for event in client.stream(recipe_id, entry_id, body):
+                if event['type'] == 'progress':
+                    print(f"Progress: {event['data']}")
+                elif event['type'] == 'result':
+                    print(f"Result: {event['data']}")
+                elif event['type'] == 'end':
+                    print(f"Complete: {event['data']}")
+        """
+        headers = self._get_headers()
+        base_url = self._get_base_url()
+        stringified_body = self._prepare_body(body)
+
+        url = f"{base_url}/{recipe_id}/{entry_id}/stream"
+
+        response = requests.post(
+            url,
+            data=stringified_body,
+            headers=headers,
+            stream=True
         )
 
-        status = response.json() if response.ok else response.json()
+        response.raise_for_status()
 
-        return status
+        # The API returns concatenated JSON objects: {"..."}{"..."}{"..."}
+        # We need to parse them incrementally
+        buffer = ""
+        decoder = json.JSONDecoder()
 
-    async def pollStatusAsync(self, runId):
-        headers = {
-            'Content-Type': 'application/json',
-            'X-Entry-Auth-Code': self.entryAuthCode,
-        }
+        for chunk in response.iter_content(decode_unicode=True):
+            if chunk:
+                buffer += chunk
+                # Try to parse as many JSON objects as we can from the buffer
+                while buffer:
+                    buffer = buffer.strip()
+                    if not buffer:
+                        break
 
-        entryPoint = self.entryPoint + "." if self.entryPoint else ""
+                    try:
+                        # Parse one JSON object from the beginning of buffer
+                        obj, idx = decoder.raw_decode(buffer)
+                        yield obj
+                        # Remove the parsed object from buffer
+                        buffer = buffer[idx:].lstrip()
+                    except json.JSONDecodeError:
+                        # Not enough data yet, wait for more chunks
+                        break
 
-        async with aiohttp.ClientSession() as session:
-            async with session.get(
-                f"https://{entryPoint}entry.on.kitchen/{self.pipelineId}/pollstatus/{runId}",
-                headers=headers
-            ) as response:
-                return await response.json(content_type=None)
+    def stream_raw(self, recipe_id: str, entry_id: str, body: Any) -> Iterator[str]:
+        """
+        Execute a recipe with streaming responses, yielding raw JSON strings.
 
-    async def runAsync(self, body):
-        headers = {
-            'Content-Type': 'application/json',
-            'X-Entry-Auth-Code': self.entryAuthCode,
-        }
+        This is useful if you want to handle JSON parsing yourself or need
+        to deal with malformed JSON chunks.
 
-        entryPoint = self.entryPoint + "." if self.entryPoint else ""
+        Args:
+            recipe_id: The ID of the pipeline/recipe
+            entry_id: The ID of the entry block
+            body: The request body (dict or JSON string)
 
-        stringifiedBody = body if isinstance(body, str) else json.dumps(body)
+        Yields:
+            Raw JSON strings from the stream
 
-        async with aiohttp.ClientSession() as session:
-            async with session.post(
-                f"https://{entryPoint}entry.on.kitchen/{self.pipelineId}/{self.entryBlockId}/async",
-                data=stringifiedBody,
-                headers=headers
-            ) as response:
-                if response.status == 200:
-                    result = await response.json(content_type=None)
-                    runId = result['runId']
-                    while True:
-                        status = await self.pollStatusAsync(runId)
-                        if status['status'] == "finished":
-                            return status
-                        elif status['status'] == "running":
-                            await asyncio.sleep(1)
-                        else:
-                            return status
-                else:
-                    raise Exception('Unable to runAsync:', await response.text())
+        Example:
+            for raw_json in client.stream_raw(recipe_id, entry_id, body):
+                print(raw_json)
+        """
+        headers = self._get_headers()
+        base_url = self._get_base_url()
+        stringified_body = self._prepare_body(body)
+
+        url = f"{base_url}/{recipe_id}/{entry_id}/stream"
+
+        response = requests.post(
+            url,
+            data=stringified_body,
+            headers=headers,
+            stream=True
+        )
+
+        response.raise_for_status()
+
+        for line in response.iter_lines(decode_unicode=True):
+            if line:
+                line = line.strip()
+                if line.startswith("data: "):
+                    line = line[6:]
+                if line:
+                    yield line

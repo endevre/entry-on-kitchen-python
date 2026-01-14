@@ -1,91 +1,334 @@
-# Kitchen Module Documentation
+# Entry on Kitchen Python Library
 [![PyPI - Downloads](https://img.shields.io/pypi/dm/entry-on-kitchen)](https://pypi.org/project/entry-on-kitchen/)
 [![PyPI - Version](https://img.shields.io/pypi/v/entry-on-kitchen)](https://pypi.org/project/entry-on-kitchen/)
 
-## EntryBlock Class
+Official Python module for executing recipes on the Entry on Kitchen API. Supports both synchronous execution and real-time HTTP streaming.
 
-The EntryBlock class is a part of the kitchen module for accessing entry blocks. It provides methods for both synchronous and asynchronous execution, as well as asynchronous and synchronous methods for getting run status.
+## Installation
+
+```bash
+pip install entry-on-kitchen
+```
+
+## Quick Start
+
+```python
+from entry_on_kitchen import KitchenClient
+
+# Initialize the client with your auth code
+client = KitchenClient(
+    auth_code="your-auth-code-here",
+    entry_point="beta"  # Optional: use "" for production
+)
+
+# Synchronous execution
+result = client.sync(
+    recipe_id="your-recipe-id",
+    entry_id="your-entry-id",
+    body={"message": "Hello, Kitchen!"}
+)
+
+print(result)
+```
+
+## KitchenClient Class
+
+The `KitchenClient` class provides a simple interface for executing recipes.
+
+### Constructor
+
+```python
+KitchenClient(auth_code, entry_point="")
+```
+
+**Parameters:**
+- `auth_code` (str, required): Your X-Entry-Auth-Code for authentication
+- `entry_point` (str, optional): Entry point environment (e.g., "beta" for beta). Defaults to "" (production)
+
+**Raises:**
+- `ValueError`: If `auth_code` is not provided or empty
 
 ### Methods
 
-1. **`__init__(pipelineId, entryBlockId, entryPoint, entryAuthCode)`**
+#### `sync(recipe_id, entry_id, body)`
 
-    Initializes a new EntryBlock instance with the specified pipeline ID, entry block ID, entry point, and entry authentication code.
+Execute a recipe synchronously and wait for the complete result.
 
-    Parameters:
-    - `pipelineId` (ObjectId, required): The ID of the pipeline.
-    - `entryBlockId` (str, required): The ID of the entry block.
-    - `entryPoint` (str, defaults to None): The entry point for the pipeline. (None for production, beta for beta)
-    - `entryAuthCode` (str, defaults to None): The entry auth code associated with the account
+**Parameters:**
+- `recipe_id` (str): The ID of the pipeline/recipe
+- `entry_id` (str): The ID of the entry block
+- `body` (dict or str): Request body data
 
-2. **`runSync(input_data)`**
+**Returns:**
+Dictionary containing:
+- `runId`: The execution run ID
+- `status`: Execution status ("finished", "error", etc.)
+- `result`: The execution result (if successful)
+- `error`: Error message (if failed)
+- `exitBlock`: Exit block information
 
-    Executes the entry block synchronously and returns the response.
+**Example:**
+```python
+result = client.sync(
+    recipe_id="recipe-123",
+    entry_id="entry-456",
+    body={
+        "message": "Hello!",
+        "provider": "google_genai",
+        "model": "gemini-2.5-flash"
+    }
+)
 
-    Parameters:
-    - `input_data` (dict): Input data to be passed to the entry block.
+if result["status"] == "finished":
+    print("Success:", result["result"])
+else:
+    print("Error:", result["error"])
+```
 
-    Returns:
-    - `response` (dict): The response from the entry block.
+#### `stream(recipe_id, entry_id, body)`
 
-3. **`async runAsync(input_data)`**
+Execute a recipe with real-time streaming. Yields events as they arrive.
 
-    Executes the entry block asynchronously and returns the response.
+**Parameters:**
+- `recipe_id` (str): The ID of the pipeline/recipe
+- `entry_id` (str): The ID of the entry block
+- `body` (dict or str): Request body data
 
-    Parameters:
-    - `input_data` (dict): Input data to be passed to the entry block.
+**Yields:**
+Dictionary objects representing stream events with keys:
+- `runId`: The execution run ID
+- `type`: Event type (see types below)
+- `time`: Timestamp of the event
+- `data`: Event-specific data
+- `socket`: Socket ID (for "result" and "delta" events)
+- `statusCode`: HTTP status code
 
-    Returns:
-    - `response` (dict): The response from the entry block.
+**Event Types:**
+- `"progress"`: Execution progress updates
+- `"result"`: Output data from blocks
+- `"delta"`: Incremental content updates (for streaming LLM responses)
+- `"info"`: Informational messages
+- `"end"`: Final result (marks completion)
 
-4. **`pollStatus(runId)`**
+**Example:**
+```python
+for event in client.stream(
+    recipe_id="recipe-123",
+    entry_id="entry-456",
+    body={"message": "Hello!"}
+):
+    event_type = event["type"]
 
-    - Polls the status of a pipeline run synchronously.
+    if event_type == "progress":
+        data = event["data"]
+        print(f"Progress: {data['blockPosition']}/{data['blocksToExitBlock']}")
 
-    - Parameters:
-        - `runId` (str): The ID of the pipeline run to poll.
+    elif event_type == "result":
+        socket = event["socket"]
+        data = event["data"]
+        print(f"Result from {socket}: {data}")
 
-    - Returns:
-        - `status` (dict): The status of the pipeline run.
+    elif event_type == "delta":
+        socket = event["socket"]
+        delta = event["data"]
+        print(f"Delta update for {socket}: {delta}")
 
-5. **`async pollStatusAsync(runId)`**
+    elif event_type == "end":
+        print("Complete!")
+        print(f"Final result: {event['data']}")
+```
 
-    - Polls the status of a pipeline run asynchronously.
+#### `stream_raw(recipe_id, entry_id, body)`
 
-    - Parameters:
-        - `runId` (str): The ID of the pipeline run to poll.
+Execute a recipe with streaming, yielding raw JSON strings. Useful for custom parsing.
 
-    - Returns:
-        - `status` (dict): The status of the pipeline run.
+**Example:**
+```python
+for raw_json in client.stream_raw(
+    recipe_id="recipe-123",
+    entry_id="entry-456",
+    body={"message": "Hello!"}
+):
+    print(raw_json)
+```
 
----
+## Complete Examples
 
-These additions provide documentation for the `pollStatus` and `pollStatusAsync` methods, including their parameters, return types, and usage examples for both synchronous and asynchronous calls.
+### Synchronous Execution
 
+```python
+from entry_on_kitchen import KitchenClient
 
+client = KitchenClient(auth_code="your-auth-code", entry_point="beta")
 
-### Example Usage:
-```py
+result = client.sync(
+    recipe_id="my-recipe",
+    entry_id="my-entry",
+    body={"input": "value"}
+)
+
+print(f"Run ID: {result['runId']}")
+print(f"Status: {result['status']}")
+print(f"Result: {result.get('result')}")
+```
+
+### Streaming with Progress Tracking
+
+```python
+from entry_on_kitchen import KitchenClient
+
+client = KitchenClient(auth_code="your-auth-code")
+
+result_buffer = {}
+
+for event in client.stream(
+    recipe_id="my-recipe",
+    entry_id="my-entry",
+    body={"input": "value"}
+):
+    if event["type"] == "progress":
+        # Show progress
+        block = event["data"]["blockPosition"]
+        total = event["data"]["blocksToExitBlock"]
+        print(f"\rProgress: {block}/{total} blocks", end="", flush=True)
+
+    elif event["type"] == "result":
+        # Store results
+        socket = event["socket"]
+        result_buffer[socket] = event["data"]
+        print(f"\nReceived result from {socket}")
+
+    elif event["type"] == "end":
+        print("\nExecution complete!")
+        print(f"Final result: {event['data']}")
+
+print("\nAll results:", result_buffer)
+```
+
+### Streaming LLM Responses
+
+```python
+from entry_on_kitchen import KitchenClient
+
+client = KitchenClient(auth_code="your-auth-code")
+
+full_response = ""
+
+for event in client.stream(
+    recipe_id="llm-recipe",
+    entry_id="llm-entry",
+    body={"prompt": "Tell me a story"}
+):
+    if event["type"] == "delta":
+        # Delta updates contain incremental text
+        for op in event["data"]:
+            if op[0] == "i":  # Insert operation
+                position, length, text = op[1], op[2], op[3]
+                full_response += text
+                print(text, end="", flush=True)
+
+    elif event["type"] == "end":
+        print("\n\nComplete!")
+```
+
+## Environment Configuration
+
+### Production
+```python
+client = KitchenClient(auth_code="your-auth-code", entry_point="")
+# Uses: https://entry.on.kitchen
+```
+
+### Beta
+```python
+client = KitchenClient(auth_code="your-auth-code", entry_point="beta")
+# Uses: https://beta.entry.on.kitchen
+```
+
+### Custom Entry Point
+```python
+client = KitchenClient(auth_code="your-auth-code", entry_point="custom")
+# Uses: https://custom.entry.on.kitchen
+```
+
+## Requirements
+
+- Python 3.7 or higher
+- `requests` library
+
+## Error Handling
+
+```python
+from entry_on_kitchen import KitchenClient
+import requests
+
+client = KitchenClient(auth_code="your-auth-code")
+
+try:
+    result = client.sync(
+        recipe_id="recipe-123",
+        entry_id="entry-456",
+        body={"input": "value"}
+    )
+except requests.HTTPError as e:
+    print(f"HTTP Error: {e}")
+except ValueError as e:
+    print(f"Value Error: {e}")
+except Exception as e:
+    print(f"Unexpected error: {e}")
+```
+
+## Migration from v0.x
+
+Version 0.3.0 is a breaking change from v0.x. Here's how to migrate:
+
+### Old API (v0.x)
+```python
 from entry_on_kitchen.Kitchen import EntryBlock
 
-# Synchronous call
-entry = EntryBlock(pipelineId="pipelineId", 
-                   entryBlockId="entryBlockId", 
-                   entryPoint="beta", 
-                   entryAuthCode="authCode")
-response = entry.runSync(input_data)
-print(response)
+entry = EntryBlock(
+    pipelineId="recipe-123",
+    entryBlockId="entry-456",
+    entryAuthCode="your-auth-code",
+    entryPoint="beta"
+)
 
-# Asynchronous call
-import asyncio
+# Synchronous
+result = entry.runSync(input_data)
 
-async def async_call():
-    entry = EntryBlock(pipelineId="pipelineId", 
-                   entryBlockId="entryBlockId", 
-                   entryPoint="beta", 
-                   entryAuthCode="authCode")
-    response = await entry.runAsync(input_data)
-    print(response)
-
-asyncio.run(async_call())
+# Asynchronous with polling
+result = await entry.runAsync(input_data)
 ```
+
+### New API (v0.3.0)
+```python
+from entry_on_kitchen import KitchenClient
+
+client = KitchenClient(
+    auth_code="your-auth-code",
+    entry_point="beta"
+)
+
+# Synchronous
+result = client.sync(
+    recipe_id="recipe-123",
+    entry_id="entry-456",
+    body=input_data
+)
+
+# Streaming (replaces async/polling)
+for event in client.stream(
+    recipe_id="recipe-123",
+    entry_id="entry-456",
+    body=input_data
+):
+    handle_event(event)
+```
+
+## License
+
+Copyright © Endevre Technologies
+
+## Support
+
+For issues and questions, contact: contact@endevre.com
