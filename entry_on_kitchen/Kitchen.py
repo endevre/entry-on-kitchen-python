@@ -202,45 +202,124 @@ class KitchenClient:
         # The API returns either:
         # 1. Server-Sent Events with "data:" prefix: data:{...}data:{...}
         # 2. Raw concatenated JSON objects: {...}{...}{...}
-        # Reference implementation approach: split on "data:" and "}{"
         buffer = ""
+
+        def extract_complete_json_objects(input_str):
+            """Extract complete JSON objects from input string."""
+            objects = []
+            depth = 0
+            in_string = False
+            escape_next = False
+            start_idx = -1
+
+            for i, char in enumerate(input_str):
+                if escape_next:
+                    escape_next = False
+                    continue
+
+                if char == "\\":
+                    escape_next = True
+                    continue
+
+                if char == '"':
+                    in_string = not in_string
+                    continue
+
+                if not in_string:
+                    if char == "{":
+                        if depth == 0:
+                            start_idx = i
+                        depth += 1
+                    elif char == "}":
+                        depth -= 1
+                        if depth == 0 and start_idx != -1:
+                            objects.append(input_str[start_idx:i+1])
+                            start_idx = -1
+
+            return objects
 
         for chunk in response.iter_content():
             if chunk:
                 # Decode chunk as UTF-8 and accumulate
                 buffer += chunk.decode('utf-8')
 
-        # Process all accumulated data
-        # The API returns either:
-        # 1. SSE format: data:{...}\ndata:{...} (each line is valid JSON)
-        # 2. Concatenated JSON: {...}{...}{...} (no separators)
-        lines = buffer.split("data:")
+                # Try to parse and yield complete objects as they arrive
+                # SSE format: split by "data:" and try to parse each complete line
+                if "data:" in buffer:
+                    lines = buffer.split("data:")
 
-        for line in lines:
-            line = line.strip()
-            if not line:
-                continue
+                    # Check if the last line is complete (ends with } or ])
+                    last_line = lines[-1].strip()
+                    all_but_last_complete = True
+                    if last_line and not last_line.endswith("}") and not last_line.endswith("]"):
+                        all_but_last_complete = False
 
-            try:
-                # Try parsing as single JSON object (SSE format)
-                obj = json.loads(line)
-                yield obj
-            except json.JSONDecodeError:
-                # If that fails, try splitting on "}{" (concatenated format)
-                split_values = line.split("}{")
-                for i in range(len(split_values)):
-                    reconstructed = (
-                        ("{" if i > 0 else "") +
-                        split_values[i] +
-                        ("}" if i < len(split_values) - 1 else "")
-                    )
+                    # Process all complete lines
+                    lines_to_process = len(lines) if all_but_last_complete else len(lines) - 1
+                    processed_chars = 0
 
-                    try:
-                        obj = json.loads(reconstructed)
-                        yield obj
-                    except json.JSONDecodeError:
-                        # Skip invalid JSON
-                        continue
+                    for i in range(lines_to_process):
+                        line = lines[i].strip()
+                        if line:
+                            try:
+                                # Try parsing as single JSON object (SSE format)
+                                obj = json.loads(line)
+                                yield obj
+                            except json.JSONDecodeError:
+                                # Try concatenated format
+                                objects = extract_complete_json_objects(line)
+                                for obj_str in objects:
+                                    try:
+                                        obj = json.loads(obj_str)
+                                        yield obj
+                                    except json.JSONDecodeError:
+                                        # Skip invalid JSON
+                                        continue
+                            processed_chars += len(line) + 5  # +5 for "data:"
+                        else:
+                            processed_chars += 5  # Empty line, just skip "data:"
+
+                    # Remove processed data from buffer
+                    if processed_chars > 0 and processed_chars < len(buffer):
+                        buffer = buffer[processed_chars:]
+                    elif lines_to_process == len(lines):
+                        buffer = ""
+                else:
+                    # No SSE format, try concatenated JSON
+                    objects = extract_complete_json_objects(buffer)
+                    last_end_idx = 0
+
+                    for obj_str in objects:
+                        try:
+                            obj = json.loads(obj_str)
+                            yield obj
+                            last_end_idx += len(obj_str)
+                        except json.JSONDecodeError:
+                            # Skip invalid JSON
+                            continue
+
+                    # Keep unprocessed data in buffer
+                    buffer = buffer[last_end_idx:]
+
+        # Process any remaining data in buffer after stream completes
+        if buffer.strip():
+            lines = buffer.split("data:")
+            for line in lines:
+                line = line.strip()
+                if not line:
+                    continue
+
+                try:
+                    obj = json.loads(line)
+                    yield obj
+                except json.JSONDecodeError:
+                    objects = extract_complete_json_objects(line)
+                    for obj_str in objects:
+                        try:
+                            obj = json.loads(obj_str)
+                            yield obj
+                        except json.JSONDecodeError:
+                            continue
 
     def stream_raw(self, recipe_id: str, entry_id: str, body: Any) -> Iterator[str]:
         """
