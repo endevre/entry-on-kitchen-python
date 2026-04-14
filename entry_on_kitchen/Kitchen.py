@@ -65,7 +65,7 @@ class KitchenClient:
         Returns:
             JSON string
         """
-        body_obj = body if isinstance(body, str) else json.loads(json.dumps(body))
+        body_obj = json.loads(body) if isinstance(body, str) else json.loads(json.dumps(body))
 
         # Add KITCHEN_BILLING_OVERRIDE if specified
         if use_kitchen_billing:
@@ -76,10 +76,20 @@ class KitchenClient:
 
         # Add KITCHEN_MODELS_OVERRIDE if llm_override is specified
         if llm_override:
+            existing_model_overrides = {}
+            if isinstance(body_obj, dict) and isinstance(body_obj.get("KITCHEN_MODELS_OVERRIDE"), dict):
+                existing_model_overrides = body_obj["KITCHEN_MODELS_OVERRIDE"]
+
             if isinstance(body_obj, dict):
-                body_obj = {**body_obj, "KITCHEN_MODELS_OVERRIDE": {"llm_override": llm_override}}
+                body_obj = {
+                    **body_obj,
+                    "KITCHEN_MODELS_OVERRIDE": {
+                        **existing_model_overrides,
+                        "models__llm_override": llm_override,
+                    },
+                }
             else:
-                body_obj = {"KITCHEN_MODELS_OVERRIDE": {"llm_override": llm_override}}
+                body_obj = {"KITCHEN_MODELS_OVERRIDE": {"models__llm_override": llm_override}}
 
         # Add KITCHEN_APIKEYS_OVERRIDE if api_key_override is specified
         if api_key_override and isinstance(api_key_override, dict) and len(api_key_override) > 0:

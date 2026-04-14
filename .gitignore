@@ -74,6 +74,7 @@ Thumbs.db
 test_*.py
 *_test.sh
 debug_*.py
+!tests/test_prepare_body.py
 
 # Claude Code
 .claude/
