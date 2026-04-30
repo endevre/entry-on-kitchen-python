@@ -7,7 +7,15 @@ receiving real-time streaming updates.
 
 import requests
 import json
-from typing import Iterator, Dict, Any, Optional, List, Union
+from typing import Iterator, Dict, Any, Optional, List, Union, Callable
+
+from .tools import (
+    create_tool_error,
+    create_tool_result,
+    get_tool_call_request,
+    with_tool_results,
+    with_tools,
+)
 
 
 class KitchenClient:
@@ -152,6 +160,88 @@ class KitchenClient:
             # If response isn't JSON, raise the HTTP error
             response.raise_for_status()
             return None
+
+    def run_with_tools(
+        self,
+        recipe_id: str,
+        entry_id: str,
+        body: Any,
+        tools: List[Dict[str, Any]],
+        handlers: Dict[str, Callable[[Dict[str, Any], Dict[str, Any]], Any]],
+        use_kitchen_billing: bool = False,
+        llm_override: str = None,
+        api_key_override: Dict[str, Dict[str, str]] = None,
+        headers: Dict[str, str] = None,
+        max_tool_iterations: int = 5,
+        on_tool_call: Callable[[Dict[str, Any]], Any] = None,
+        on_tool_result: Callable[[Dict[str, Any]], Any] = None,
+    ) -> Dict[str, Any]:
+        """
+        Execute a recipe and automatically satisfy external LLM tool calls.
+
+        The recipe should expose tools/tool_results/continuation entry params to
+        its LLM block. This helper reruns the recipe with tool results until the
+        model completes or max_tool_iterations is reached.
+        """
+        current_body = with_tools(body, tools)
+        last_response = None
+
+        for _ in range(max_tool_iterations):
+            response = self.sync(
+                recipe_id=recipe_id,
+                entry_id=entry_id,
+                body=current_body,
+                use_kitchen_billing=use_kitchen_billing,
+                llm_override=llm_override,
+                api_key_override=api_key_override,
+                headers=headers,
+            )
+            last_response = response
+
+            request = get_tool_call_request(response)
+            if not request:
+                return response
+
+            tool_results = []
+            for tool_call in request.get("tool_calls", []):
+                if on_tool_call:
+                    on_tool_call(tool_call)
+
+                name = tool_call.get("name")
+                handler = handlers.get(name)
+                if handler is None:
+                    tool_result = create_tool_error(
+                        tool_call_id=tool_call.get("id"),
+                        name=name,
+                        message=f"No handler registered for tool '{name}'",
+                        code="HANDLER_NOT_FOUND",
+                    )
+                else:
+                    try:
+                        output = handler(tool_call.get("arguments", {}), tool_call)
+                        tool_result = create_tool_result(
+                            tool_call_id=tool_call.get("id"),
+                            name=name,
+                            output=output,
+                        )
+                    except Exception as exc:
+                        tool_result = create_tool_error(
+                            tool_call_id=tool_call.get("id"),
+                            name=name,
+                            message=str(exc),
+                            code="HANDLER_ERROR",
+                        )
+
+                if on_tool_result:
+                    on_tool_result(tool_result)
+                tool_results.append(tool_result)
+
+            current_body = with_tool_results(body, tool_results, request["continuation"])
+
+        result = dict(last_response or {})
+        result["status"] = "error"
+        result["error"] = f"Maximum tool iterations reached ({max_tool_iterations})"
+        return result
 
     def stream(self, recipe_id: str, entry_id: str, body: Any, use_kitchen_billing: bool = False, llm_override: str = None, api_key_override: Dict[str, Dict[str, str]] = None, headers: Dict[str, str] = None) -> Iterator[Dict[str, Any]]:
         """
