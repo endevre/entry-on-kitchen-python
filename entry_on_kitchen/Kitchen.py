@@ -108,6 +108,57 @@ class KitchenClient:
 
         return json.dumps(body_obj)
 
+    def _parse_stream_event(self, value: str) -> Optional[Dict[str, Any]]:
+        """Parse a stream event, including payloads that were JSON encoded twice."""
+        try:
+            parsed = json.loads(value)
+            if isinstance(parsed, str):
+                parsed = json.loads(parsed)
+            return parsed if isinstance(parsed, dict) else None
+        except (json.JSONDecodeError, TypeError):
+            return None
+
+    def _is_final_payload_ref(self, value: Any) -> bool:
+        return isinstance(value, dict) and (
+            ("bucket" in value and "key" in value) or "url" in value
+        )
+
+    def _fetch_final_payload(self, ref: Dict[str, Any]) -> Dict[str, Any]:
+        url = ref.get("url")
+        if not url:
+            raise ValueError("Final payload reference does not include a URL")
+
+        response = requests.get(url)
+        response.raise_for_status()
+        return response.json()
+
+    def _hydrate_terminal_event(self, event: Dict[str, Any]) -> Dict[str, Any]:
+        if event.get("type") not in ("end", "error"):
+            return event
+
+        data = event.get("data")
+        if isinstance(data, str):
+            parsed_data = self._parse_stream_event(data)
+            if parsed_data is not None:
+                data = parsed_data
+                event = {**event, "data": data}
+
+        if not isinstance(data, dict):
+            return event
+
+        has_inline_error = data.get("error") not in (None, "", "null")
+        has_inline_payload = (
+            "result" in data or has_inline_error or "exitBlock" in data
+        )
+        ref = data.get("finalPayloadRef")
+        if has_inline_payload or not self._is_final_payload_ref(ref):
+            return event
+
+        return {
+            **event,
+            "data": self._fetch_final_payload(ref),
+        }
+
     def sync(self, recipe_id: str, entry_id: str, body: Any, use_kitchen_billing: bool = False, llm_override: str = None, api_key_override: Dict[str, Dict[str, str]] = None, headers: Dict[str, str] = None) -> Dict[str, Any]:
         """
         Execute a recipe synchronously.
@@ -361,20 +412,16 @@ class KitchenClient:
                     for i in range(lines_to_process):
                         line = lines[i].strip()
                         if line:
-                            try:
-                                # Try parsing as single JSON object (SSE format)
-                                obj = json.loads(line)
-                                yield obj
-                            except json.JSONDecodeError:
+                            obj = self._parse_stream_event(line)
+                            if obj:
+                                yield self._hydrate_terminal_event(obj)
+                            else:
                                 # Try concatenated format
                                 objects = extract_complete_json_objects(line)
                                 for obj_str in objects:
-                                    try:
-                                        obj = json.loads(obj_str)
-                                        yield obj
-                                    except json.JSONDecodeError:
-                                        # Skip invalid JSON
-                                        continue
+                                    obj = self._parse_stream_event(obj_str)
+                                    if obj:
+                                        yield self._hydrate_terminal_event(obj)
                             processed_chars += len(line) + 5  # +5 for "data:"
                         else:
                             processed_chars += 5  # Empty line, just skip "data:"
@@ -390,13 +437,10 @@ class KitchenClient:
                     last_end_idx = 0
 
                     for obj_str in objects:
-                        try:
-                            obj = json.loads(obj_str)
-                            yield obj
+                        obj = self._parse_stream_event(obj_str)
+                        if obj:
+                            yield self._hydrate_terminal_event(obj)
                             last_end_idx += len(obj_str)
-                        except json.JSONDecodeError:
-                            # Skip invalid JSON
-                            continue
 
                     # Keep unprocessed data in buffer
                     buffer = buffer[last_end_idx:]
@@ -409,17 +453,15 @@ class KitchenClient:
                 if not line:
                     continue
 
-                try:
-                    obj = json.loads(line)
-                    yield obj
-                except json.JSONDecodeError:
+                obj = self._parse_stream_event(line)
+                if obj:
+                    yield self._hydrate_terminal_event(obj)
+                else:
                     objects = extract_complete_json_objects(line)
                     for obj_str in objects:
-                        try:
-                            obj = json.loads(obj_str)
-                            yield obj
-                        except json.JSONDecodeError:
-                            continue
+                        obj = self._parse_stream_event(obj_str)
+                        if obj:
+                            yield self._hydrate_terminal_event(obj)
 
     def stream_raw(self, recipe_id: str, entry_id: str, body: Any) -> Iterator[str]:
         """

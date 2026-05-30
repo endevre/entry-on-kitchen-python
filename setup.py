@@ -2,7 +2,7 @@ from setuptools import setup, find_packages
 
 setup(
     name='entry-on-kitchen',
-    version='0.3.4',
+    version='0.3.5',
     description='Official Python Module for using entry blocks on kitchen',
     author='Endevre Technologies',
     author_email='contact@endevre.com',
