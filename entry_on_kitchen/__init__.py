@@ -5,7 +5,7 @@ A simple Python library for executing recipes on the Entry on Kitchen API.
 Supports both synchronous execution and real-time streaming.
 """
 
-from .Kitchen import KitchenClient
+from .Kitchen import KitchenClient, ThinkingLevel
 from .tools import (
     create_external_tool,
     create_kitchen_entry_tool,
@@ -19,9 +19,10 @@ from .tools import (
     with_tools,
 )
 
-__version__ = "0.3.5"
+__version__ = "0.3.6"
 __all__ = [
     "KitchenClient",
+    "ThinkingLevel",
     "create_external_tool",
     "create_kitchen_entry_tool",
     "create_tool_error",

@@ -7,7 +7,7 @@ receiving real-time streaming updates.
 
 import requests
 import json
-from typing import Iterator, Dict, Any, Optional, List, Union, Callable
+from typing import Iterator, Dict, Any, Optional, List, Union, Callable, Literal
 
 from .tools import (
     create_tool_error,
@@ -16,6 +16,10 @@ from .tools import (
     with_tool_results,
     with_tools,
 )
+
+
+ThinkingLevel = Literal["off", "low", "medium", "high", "xhigh", "max"]
+_THINKING_LEVELS = frozenset(("off", "low", "medium", "high", "xhigh", "max"))
 
 
 class KitchenClient:
@@ -60,7 +64,14 @@ class KitchenClient:
         entry_point_prefix = f"{self.entry_point}." if self.entry_point else ""
         return f"https://{entry_point_prefix}entry.on.kitchen"
 
-    def _prepare_body(self, body: Any, use_kitchen_billing: bool = False, llm_override: str = None, api_key_override: Dict[str, Dict[str, str]] = None) -> str:
+    def _prepare_body(
+        self,
+        body: Any,
+        use_kitchen_billing: bool = False,
+        llm_override: str = None,
+        api_key_override: Dict[str, Dict[str, str]] = None,
+        thinking_override: ThinkingLevel = None,
+    ) -> str:
         """
         Prepare the request body.
 
@@ -69,6 +80,8 @@ class KitchenClient:
             use_kitchen_billing: Enable Kitchen billing (optional)
             llm_override: LLM model override (optional)
             api_key_override: API key overrides (optional)
+            thinking_override: Standardized runtime thinking level (optional).
+                Valid values are off, low, medium, high, xhigh, and max.
 
         Returns:
             JSON string
@@ -98,6 +111,19 @@ class KitchenClient:
                 }
             else:
                 body_obj = {"KITCHEN_MODELS_OVERRIDE": {"models__llm_override": llm_override}}
+
+        # Add KITCHEN_THINKING_OVERRIDE if thinking_override is specified
+        if thinking_override is not None and str(thinking_override).strip() != "":
+            normalized_thinking = str(thinking_override).strip().lower()
+            if normalized_thinking not in _THINKING_LEVELS:
+                raise ValueError(
+                    "Invalid thinking_override. Expected one of: "
+                    + ", ".join(("off", "low", "medium", "high", "xhigh", "max"))
+                )
+            if isinstance(body_obj, dict):
+                body_obj = {**body_obj, "KITCHEN_THINKING_OVERRIDE": normalized_thinking}
+            else:
+                body_obj = {"KITCHEN_THINKING_OVERRIDE": normalized_thinking}
 
         # Add KITCHEN_APIKEYS_OVERRIDE if api_key_override is specified
         if api_key_override and isinstance(api_key_override, dict) and len(api_key_override) > 0:
@@ -159,7 +185,17 @@ class KitchenClient:
             "data": self._fetch_final_payload(ref),
         }
 
-    def sync(self, recipe_id: str, entry_id: str, body: Any, use_kitchen_billing: bool = False, llm_override: str = None, api_key_override: Dict[str, Dict[str, str]] = None, headers: Dict[str, str] = None) -> Dict[str, Any]:
+    def sync(
+        self,
+        recipe_id: str,
+        entry_id: str,
+        body: Any,
+        use_kitchen_billing: bool = False,
+        llm_override: str = None,
+        api_key_override: Dict[str, Dict[str, str]] = None,
+        headers: Dict[str, str] = None,
+        thinking_override: ThinkingLevel = None,
+    ) -> Dict[str, Any]:
         """
         Execute a recipe synchronously.
 
@@ -171,6 +207,7 @@ class KitchenClient:
             llm_override: LLM model override (optional)
             api_key_override: API key overrides (optional)
             headers: Custom headers (optional, for HMAC signatures, etc.)
+            thinking_override: Standardized runtime thinking level (optional)
 
         Returns:
             Dictionary containing the response with keys:
@@ -185,7 +222,13 @@ class KitchenClient:
         """
         request_headers = self._get_headers()
         base_url = self._get_base_url()
-        stringified_body = self._prepare_body(body, use_kitchen_billing, llm_override, api_key_override)
+        stringified_body = self._prepare_body(
+            body,
+            use_kitchen_billing,
+            llm_override,
+            api_key_override,
+            thinking_override,
+        )
 
         # Merge custom headers
         if headers:
@@ -226,6 +269,7 @@ class KitchenClient:
         max_tool_iterations: int = 5,
         on_tool_call: Callable[[Dict[str, Any]], Any] = None,
         on_tool_result: Callable[[Dict[str, Any]], Any] = None,
+        thinking_override: ThinkingLevel = None,
     ) -> Dict[str, Any]:
         """
         Execute a recipe and automatically satisfy external LLM tool calls.
@@ -246,6 +290,7 @@ class KitchenClient:
                 llm_override=llm_override,
                 api_key_override=api_key_override,
                 headers=headers,
+                thinking_override=thinking_override,
             )
             last_response = response
 
@@ -294,7 +339,17 @@ class KitchenClient:
         result["error"] = f"Maximum tool iterations reached ({max_tool_iterations})"
         return result
 
-    def stream(self, recipe_id: str, entry_id: str, body: Any, use_kitchen_billing: bool = False, llm_override: str = None, api_key_override: Dict[str, Dict[str, str]] = None, headers: Dict[str, str] = None) -> Iterator[Dict[str, Any]]:
+    def stream(
+        self,
+        recipe_id: str,
+        entry_id: str,
+        body: Any,
+        use_kitchen_billing: bool = False,
+        llm_override: str = None,
+        api_key_override: Dict[str, Dict[str, str]] = None,
+        headers: Dict[str, str] = None,
+        thinking_override: ThinkingLevel = None,
+    ) -> Iterator[Dict[str, Any]]:
         """
         Execute a recipe with streaming responses.
 
@@ -315,6 +370,7 @@ class KitchenClient:
             llm_override: LLM model override (optional)
             api_key_override: API key overrides (optional)
             headers: Custom headers (optional, for HMAC signatures, etc.)
+            thinking_override: Standardized runtime thinking level (optional)
 
         Yields:
             Dictionary objects representing stream events
@@ -333,7 +389,13 @@ class KitchenClient:
         """
         request_headers = self._get_headers()
         base_url = self._get_base_url()
-        stringified_body = self._prepare_body(body, use_kitchen_billing, llm_override, api_key_override)
+        stringified_body = self._prepare_body(
+            body,
+            use_kitchen_billing,
+            llm_override,
+            api_key_override,
+            thinking_override,
+        )
 
         # Merge custom headers
         if headers:
@@ -463,7 +525,13 @@ class KitchenClient:
                         if obj:
                             yield self._hydrate_terminal_event(obj)
 
-    def stream_raw(self, recipe_id: str, entry_id: str, body: Any) -> Iterator[str]:
+    def stream_raw(
+        self,
+        recipe_id: str,
+        entry_id: str,
+        body: Any,
+        thinking_override: ThinkingLevel = None,
+    ) -> Iterator[str]:
         """
         Execute a recipe with streaming responses, yielding raw JSON strings.
 
@@ -474,6 +542,7 @@ class KitchenClient:
             recipe_id: The ID of the pipeline/recipe
             entry_id: The ID of the entry block
             body: The request body (dict or JSON string)
+            thinking_override: Standardized runtime thinking level (optional)
 
         Yields:
             Raw JSON strings from the stream
@@ -484,7 +553,7 @@ class KitchenClient:
         """
         headers = self._get_headers()
         base_url = self._get_base_url()
-        stringified_body = self._prepare_body(body)
+        stringified_body = self._prepare_body(body, thinking_override=thinking_override)
 
         url = f"{base_url}/{recipe_id}/{entry_id}/stream"
 

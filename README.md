@@ -50,7 +50,7 @@ KitchenClient(auth_code, entry_point="")
 
 ### Methods
 
-#### `sync(recipe_id, entry_id, body, use_kitchen_billing=False, llm_override=None, api_key_override=None)`
+#### `sync(recipe_id, entry_id, body, use_kitchen_billing=False, llm_override=None, api_key_override=None, headers=None, thinking_override=None)`
 
 Execute a recipe synchronously and wait for the complete result.
 
@@ -61,6 +61,7 @@ Execute a recipe synchronously and wait for the complete result.
 - `use_kitchen_billing` (bool, optional): Enable Kitchen billing
 - `llm_override` (str, optional): Override the LLM model (e.g., "gpt-4", "claude-3")
 - `api_key_override` (dict, optional): Override API keys for external services
+- `thinking_override` (str, optional): Standardized runtime thinking level: `off`, `low`, `medium`, `high`, `xhigh`, or `max`
 
 **Returns:**
 Dictionary containing:
@@ -88,7 +89,7 @@ else:
     print("Error:", result["error"])
 ```
 
-#### `stream(recipe_id, entry_id, body, use_kitchen_billing=False, llm_override=None, api_key_override=None)`
+#### `stream(recipe_id, entry_id, body, use_kitchen_billing=False, llm_override=None, api_key_override=None, headers=None, thinking_override=None)`
 
 Execute a recipe with real-time streaming. Yields events as they arrive.
 
@@ -99,6 +100,7 @@ Execute a recipe with real-time streaming. Yields events as they arrive.
 - `use_kitchen_billing` (bool, optional): Enable Kitchen billing
 - `llm_override` (str, optional): Override the LLM model (e.g., "gpt-4", "claude-3")
 - `api_key_override` (dict, optional): Override API keys for external services
+- `thinking_override` (str, optional): Standardized runtime thinking level: `off`, `low`, `medium`, `high`, `xhigh`, or `max`
 
 **Yields:**
 Dictionary objects representing stream events with keys:
@@ -144,7 +146,7 @@ for event in client.stream(
         print(f"Final result: {event['data']}")
 ```
 
-#### `stream_raw(recipe_id, entry_id, body)`
+#### `stream_raw(recipe_id, entry_id, body, thinking_override=None)`
 
 Execute a recipe with streaming, yielding raw JSON strings. Useful for custom parsing.
 
@@ -153,7 +155,8 @@ Execute a recipe with streaming, yielding raw JSON strings. Useful for custom pa
 for raw_json in client.stream_raw(
     recipe_id="recipe-123",
     entry_id="entry-456",
-    body={"message": "Hello!"}
+    body={"message": "Hello!"},
+    thinking_override="high",
 ):
     print(raw_json)
 ```
@@ -293,6 +296,21 @@ for event in client.stream(
 ):
     # Handle events
     pass
+```
+
+### Thinking Override
+
+Set a standardized runtime thinking level for the selected model. Omit
+`thinking_override` to use the recipe/Chef default; `auto` is not sent as a
+runtime override.
+
+```python
+result = client.sync(
+    recipe_id="recipe-123",
+    entry_id="entry-456",
+    body={"message": "Solve this carefully"},
+    thinking_override="high",
+)
 ```
 
 ### Combining Options
