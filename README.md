@@ -13,11 +13,11 @@ pip install entry-on-kitchen
 ## Quick Start
 
 ```python
-from entry_on_kitchen import KitchenClient
+from entry_on_kitchen import EntryCodeAuthorization, KitchenClient
 
-# Initialize the client with your auth code
+# Initialize the client with a static entry code
 client = KitchenClient(
-    auth_code="your-auth-code-here",
+    authorization=EntryCodeAuthorization("your-auth-code-here"),
     entry_point="beta"  # Optional: use "" for production
 )
 
@@ -38,15 +38,52 @@ The `KitchenClient` class provides a simple interface for executing recipes.
 ### Constructor
 
 ```python
-KitchenClient(auth_code, entry_point="")
+KitchenClient(authorization, entry_point="entry")
 ```
 
 **Parameters:**
-- `auth_code` (str, required): Your X-Entry-Auth-Code for authentication
-- `entry_point` (str, optional): Entry point environment (e.g., "beta" for beta). Defaults to "" (production)
+- `authorization` (required): An `EntryCodeAuthorization` or `BearerAuthorization` capability
+- `entry_point` (str, optional): Entry point environment (e.g., "beta" for beta). Defaults to `"entry"`
 
 **Raises:**
-- `ValueError`: If `auth_code` is not provided or empty
+- `ValueError`: If authorization is not provided or a credential is empty
+- `TypeError`: If `authorization` is not an authorization capability
+
+### Authorization capabilities
+
+`KitchenClient` stores an authorization capability instead of a bearer token.
+Use `EntryCodeAuthorization` for a static entry code:
+
+```python
+from entry_on_kitchen import EntryCodeAuthorization, KitchenClient
+
+client = KitchenClient(
+    authorization=EntryCodeAuthorization("your-entry-code"),
+)
+```
+
+For a browser or service session that can refresh, use
+`BearerAuthorization`. Its callback is called synchronously immediately
+before every authenticated request and receives `force_refresh=True` only for
+the client's single bounded recovery attempt. The callback's return value is
+used as the raw `Authorization` header value; include `Bearer ` yourself when
+your API expects that scheme.
+
+```python
+from entry_on_kitchen import BearerAuthorization, KitchenClient
+
+def get_token(force_refresh):
+    # Call the owning auth client here; do not cache the returned token in
+    # KitchenClient or in a long-lived request closure.
+    return auth_client.get_token(force_refresh=force_refresh)
+
+client = KitchenClient(authorization=BearerAuthorization(get_token))
+```
+
+Bearer requests are retried at most once after HTTP 401 or the Runner's exact
+`Authorization expired or invalid` response, provided no run identity or
+stream event has been emitted. Generic 403 responses and static entry-code
+requests are never retried.
 
 ### Methods
 
@@ -166,9 +203,12 @@ for raw_json in client.stream_raw(
 ### Synchronous Execution
 
 ```python
-from entry_on_kitchen import KitchenClient
+from entry_on_kitchen import EntryCodeAuthorization, KitchenClient
 
-client = KitchenClient(auth_code="your-auth-code", entry_point="beta")
+client = KitchenClient(
+    authorization=EntryCodeAuthorization("your-auth-code"),
+    entry_point="beta",
+)
 
 result = client.sync(
     recipe_id="my-recipe",
@@ -184,9 +224,9 @@ print(f"Result: {result.get('result')}")
 ### Streaming with Progress Tracking
 
 ```python
-from entry_on_kitchen import KitchenClient
+from entry_on_kitchen import EntryCodeAuthorization, KitchenClient
 
-client = KitchenClient(auth_code="your-auth-code")
+client = KitchenClient(authorization=EntryCodeAuthorization("your-auth-code"))
 
 result_buffer = {}
 
@@ -217,9 +257,9 @@ print("\nAll results:", result_buffer)
 ### Streaming LLM Responses
 
 ```python
-from entry_on_kitchen import KitchenClient
+from entry_on_kitchen import EntryCodeAuthorization, KitchenClient
 
-client = KitchenClient(auth_code="your-auth-code")
+client = KitchenClient(authorization=EntryCodeAuthorization("your-auth-code"))
 
 full_response = ""
 
@@ -244,19 +284,19 @@ for event in client.stream(
 
 ### Production
 ```python
-client = KitchenClient(auth_code="your-auth-code", entry_point="")
+client = KitchenClient(authorization=EntryCodeAuthorization("your-auth-code"), entry_point="")
 # Uses: https://entry.on.kitchen
 ```
 
 ### Beta
 ```python
-client = KitchenClient(auth_code="your-auth-code", entry_point="beta")
+client = KitchenClient(authorization=EntryCodeAuthorization("your-auth-code"), entry_point="beta")
 # Uses: https://beta.entry.on.kitchen
 ```
 
 ### Custom Entry Point
 ```python
-client = KitchenClient(auth_code="your-auth-code", entry_point="custom")
+client = KitchenClient(authorization=EntryCodeAuthorization("your-auth-code"), entry_point="custom")
 # Uses: https://custom.entry.on.kitchen
 ```
 
@@ -335,10 +375,10 @@ result = client.sync(
 ## Error Handling
 
 ```python
-from entry_on_kitchen import KitchenClient
+from entry_on_kitchen import EntryCodeAuthorization, KitchenClient
 import requests
 
-client = KitchenClient(auth_code="your-auth-code")
+client = KitchenClient(authorization=EntryCodeAuthorization("your-auth-code"))
 
 try:
     result = client.sync(
@@ -356,7 +396,8 @@ except Exception as e:
 
 ## Migration from v0.x
 
-Version 0.3.0 is a breaking change from v0.x. Here's how to migrate:
+Version 0.4.0 is a breaking change from 0.3.x: pass an explicit authorization
+capability instead of `auth_code`. Here's how to migrate:
 
 ### Old API (v0.x)
 ```python
@@ -376,13 +417,13 @@ result = entry.runSync(input_data)
 result = await entry.runAsync(input_data)
 ```
 
-### New API (v0.3.0)
+### New API (v0.4.0)
 ```python
-from entry_on_kitchen import KitchenClient
+from entry_on_kitchen import EntryCodeAuthorization, KitchenClient
 
 client = KitchenClient(
-    auth_code="your-auth-code",
-    entry_point="beta"
+    authorization=EntryCodeAuthorization("your-auth-code"),
+    entry_point="beta",
 )
 
 # Synchronous
