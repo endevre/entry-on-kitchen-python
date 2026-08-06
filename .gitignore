@@ -75,6 +75,7 @@ test_*.py
 *_test.sh
 debug_*.py
 !tests/test_prepare_body.py
+!tests/test_authorization.py
 
 # Claude Code
 .claude/

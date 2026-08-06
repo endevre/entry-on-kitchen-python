@@ -2,16 +2,25 @@ import json
 import unittest
 from unittest.mock import patch
 
-from entry_on_kitchen import KitchenClient
+from entry_on_kitchen import EntryCodeAuthorization, KitchenClient
 
 
 class FakeResponse:
-    def __init__(self, chunks=None, json_body=None):
+    def __init__(self, chunks=None, json_body=None, status_code=200):
         self._chunks = chunks or []
         self._json_body = json_body
+        self.status_code = status_code
+        self.closed = False
 
     def raise_for_status(self):
+        if self.status_code >= 400:
+            import requests
+
+            raise requests.HTTPError(response=self)
         return None
+
+    def close(self):
+        self.closed = True
 
     def iter_content(self):
         for chunk in self._chunks:
@@ -27,7 +36,7 @@ def sse_event(event):
 
 class StreamTests(unittest.TestCase):
     def test_stream_decodes_stringified_sse_events(self):
-        client = KitchenClient(auth_code="test-auth-code")
+        client = KitchenClient(EntryCodeAuthorization("test-auth-code"))
         inner_data = {
             "runId": None,
             "status": "error",
@@ -53,7 +62,7 @@ class StreamTests(unittest.TestCase):
         self.assertEqual(events[0]["data"], inner_data)
 
     def test_stream_hydrates_terminal_final_payload_refs(self):
-        client = KitchenClient(auth_code="test-auth-code")
+        client = KitchenClient(EntryCodeAuthorization("test-auth-code"))
         terminal_event = {
             "runId": "run-1",
             "seq": 1,

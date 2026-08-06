@@ -6,6 +6,7 @@ Supports both synchronous execution and real-time streaming.
 """
 
 from .Kitchen import KitchenClient, ThinkingLevel
+from .auth import Authorization, AuthorizationError, BearerAuthorization, EntryCodeAuthorization
 from .tools import (
     create_external_tool,
     create_kitchen_entry_tool,
@@ -19,8 +20,12 @@ from .tools import (
     with_tools,
 )
 
-__version__ = "0.3.6"
+__version__ = "0.4.0"
 __all__ = [
+    "Authorization",
+    "AuthorizationError",
+    "BearerAuthorization",
+    "EntryCodeAuthorization",
     "KitchenClient",
     "ThinkingLevel",
     "create_external_tool",
